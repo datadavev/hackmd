@@ -21,6 +21,7 @@ var helmet = require('helmet')
 var i18n = require('i18n')
 var flash = require('connect-flash')
 var validator = require('validator')
+var LZString = require('lz-string')
 
 // utils
 var getImageMimeType = require('./lib/utils.js').getImageMimeType
@@ -496,7 +497,8 @@ app.get('/me', function (req, res) {
         status: 'ok',
         id: req.user.id,
         name: profile.name,
-        photo: profile.photo
+        photo: profile.photo,
+        folderId: LZString.compressToBase64(req.user.folderId)
       })
     }).catch(function (err) {
       logger.error('read me failed: ' + err)
@@ -508,6 +510,25 @@ app.get('/me', function (req, res) {
     })
   }
 })
+var folder = require('./lib/folder.js')
+// list folders belonged to user
+app.get('/folders', folder.getAllFolders)
+// list notes belonged to the specific folder
+app.get('/folders/:folderId/notes', folder.getNotes)
+// create new folder
+app.get('/folders/:folderId/new/folder/:newName', folder.folderNew)
+// move folder
+app.get('/folders/:folderId/move/:destinationId', folder.folderMove)
+// delete folder
+app.get('/folders/:folderId/delete', folder.folderDelete)
+// rename folder
+app.get('/folders/:folderId/rename/:newName', folder.folderRename)
+// create note
+app.get('/folders/:folderId/new/note', folder.folderNewNote)
+// move note
+app.get('/:noteId/move/:folderId', folder.folderMoveNote)
+// search folders and notes containing keyword
+app.get('/search/:keyword', folder.folderSearch)
 
 // upload image
 app.post('/uploadimage', function (req, res) {

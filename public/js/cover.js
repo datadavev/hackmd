@@ -28,6 +28,18 @@ import {
     saveStorageHistoryToServer
 } from './history'
 
+import {
+    getFolders,
+    getNotes,
+    newNote,
+    moveFolder,
+    moveNote,
+    newFolder,
+    renameFolder,
+    deleteFolder,
+    searchKeyword
+} from './folder'
+
 import { saveAs } from 'file-saver'
 import List from 'list.js'
 import S from 'string'
@@ -59,6 +71,8 @@ const options = {
   }]
 }
 const historyList = new List('history', options)
+var rootFolderId = null
+var currFolderId = null
 
 window.migrateHistoryFromTempCallback = pageInit
 setloginStateChangeEvent(pageInit)
@@ -68,6 +82,8 @@ pageInit()
 function pageInit () {
   checkIfAuth(
         data => {
+          rootFolderId = data.folderId
+          currFolderId = rootFolderId
           $('.ui-signin').hide()
           $('.ui-or').hide()
           $('.ui-welcome').show()
@@ -75,16 +91,20 @@ function pageInit () {
           else $('.ui-avatar').prop('src', '').hide()
           $('.ui-name').html(data.name)
           $('.ui-signout').show()
-          $('.ui-history').click()
+          $('.ui-folder').click()
+          $('.ui-folder').show()
+          getFolders(getFoldersCallback)
           parseServerToHistory(historyList, parseHistoryCallback)
         },
         () => {
+          rootFolderId = null
           $('.ui-signin').show()
           $('.ui-or').show()
           $('.ui-welcome').hide()
           $('.ui-avatar').prop('src', '').hide()
           $('.ui-name').html('')
           $('.ui-signout').hide()
+          $('.ui-folder').hide()
           parseStorageToHistory(historyList, parseHistoryCallback)
         }
     )
@@ -111,6 +131,15 @@ $('.ui-history').click(() => {
   if (!$('#history').is(':visible')) {
     $('.section:visible').hide()
     $('#history').fadeIn()
+    $('.ui-signout').children('a').fadeIn()
+  }
+})
+
+$('.ui-folder').click(() => {
+  if (!$('#folder').is(':visible')) {
+    $('.section:visible').hide()
+    $('#folder').fadeIn()
+    $('.ui-signout').children('a').fadeOut()
   }
 })
 
@@ -166,6 +195,105 @@ function parseHistoryCallback (list, notehistory) {
     }
   }
   buildTagsFilter(filtertags)
+}
+
+function getFoldersCallback (folders) {
+  folders.sort(function (a, b) {
+    if (a.text > b.text) return 1
+    if (a.text < b.text) return -1
+    return 0
+  })
+  $('#folder-tree').treeview({
+    color: '#000000',
+    backColor: '#FFFFFF',
+    nodeIcon: 'fa fa-folder',
+    expandIcon: 'fa fa-chevron-right',
+    collapseIcon: 'fa fa-chevron-down',
+    levels: 4,
+    data: [{
+      text: $('#root-folder-title').text(),
+      nodes: folders
+    }],
+    onNodeSelected: function (event, data) {
+      $('#notes').hide()
+      if (data.id) {
+        currFolderId = data.id
+        getNotes(data.id, getNotesCallback)
+        $('#folder-title').html('<span>' + data.text + '</span><i class="fa fa-pencil-square-o" aria-hidden="true" data-toggle="modal" data-target=".folder-modal" data-action="renamefolder" ></i>')
+        $('#folder-title').show()
+        $('#root-folder-title').hide()
+        $('#folder-tool').find('.btn-success').attr('data-source-id', data.id)
+        $('#folder-tool').find('.btn-danger').attr('data-source-id', data.id)
+        $('#folder-tool').find('.btn-success').show()
+        $('#folder-tool').find('.btn-danger').show()
+      } else {
+        currFolderId = rootFolderId
+        getNotes(rootFolderId, getNotesCallback)
+        $('#folder-title').hide()
+        $('#root-folder-title').show()
+        $('#folder-tool').find('.btn-success').hide()
+        $('#folder-tool').find('.btn-danger').hide()
+      }
+    }
+  })
+  $('#folder-tree').on('rendered', function (event, data) {
+    if (currFolderId === rootFolderId) {
+      $('#folder-tree ul li').first().click()
+    } else {
+      $('#folder-tree').find('li[id="' + currFolderId + '"]').click()
+    }
+    highlightSearch()
+  })
+}
+
+function getNotesCallback (notes) {
+  $('#folder-empty').hide()
+  if (notes.length > 0) {
+    notes.sort(function (a, b) {
+      if (a.text > b.text) return 1
+      if (a.text < b.text) return -1
+      return 0
+    })
+    $('#notes').html('')
+    notes.forEach(function (note) {
+      var tags = ''
+      note.tag.forEach(function (tag) {
+        tags += '<span class="note label label-default">' + S(tag).escapeHTML() + '</span>'
+      })
+      if (tags !== '') {
+        tags = '<br><span class="note icon"><i class="fa fa-tags"></i></span>' +
+          '<span class="note tags">' +
+            tags +
+          '</span>'
+      }
+      $('#notes').append('<li class="list-group-item" data-note-id="' + note.id + '" timestamp="' + note.time + '">' +
+          '<span class="note detail">' +
+            '<span class="note icon"><i class="fa fa-file-text"></i></span>' +
+            '<span class="note title"> ' + S(note.text).escapeHTML() + '</span>' +
+            tags +
+            '<br>' +
+            '<p>' +
+              '<span class="note icon"><i class="fa fa-clock-o"></i></span>' +
+              '<i> created </i>' +
+              '<i class="note fromNow">' + moment(note.time).fromNow() + '</i>' +
+              '<i>, </i>' +
+              '<i class="note lastTime">' + moment(note.time).format('ddd, MMM DD, YYYY h:mm a') + '</i>' +
+            '</p>' +
+          '</span>' +
+          '<span class="note tool">' +
+            '<button class="btn btn-success" data-source-id="' + note.id + '" data-action="movenote" data-toggle="modal" data-target=".folder-modal"><i class="fa fa-exchange"></i></button>' +
+          '</span>' +
+        '</li>')
+    })
+    $('#notes').find('li .detail').on('click', function () {
+      location.href = `${serverurl}/` + $(this).parent().attr('data-note-id')
+    })
+  } else {
+    $('#notes').html('')
+    $('#folder-empty').fadeIn()
+  }
+  $('#notes').fadeIn()
+  highlightSearch()
 }
 
 // update items whenever list updated
@@ -424,3 +552,227 @@ $('.ui-use-tags').on('change', function () {
 $('.search').keyup(() => {
   checkHistoryList()
 })
+
+$('#folder-tool .btn-default').on('click', function (event) {
+  newNote(currFolderId, function (note) {
+    location.href = `${serverurl}/` + note.id
+  })
+})
+
+$('.folder-modal').on('show.bs.modal', function (event) {
+  var button = $(event.relatedTarget)
+  var action = button.attr('data-action')
+  var sourceId = button.attr('data-source-id')
+  $(this).find('.btn-success').attr('data-action', action)
+  $(this).find('.btn-success').attr('data-source-id', sourceId)
+  getFolders(function (folders) {
+    if (action === 'newfolder') {
+      folders.forEach(function (folder) {
+        folder.nodes = []
+      })
+    }
+    folders.sort(function (a, b) {
+      if (a.text > b.text) return 1
+      if (a.text < b.text) return -1
+      return 0
+    })
+    $('#move-folder-tree').treeview({
+      color: '#000000',
+      backColor: '#FFFFFF',
+      nodeIcon: 'fa fa-folder',
+      expandIcon: 'fa fa-chevron-right',
+      collapseIcon: 'fa fa-chevron-down',
+      levels: 4,
+      data: [{
+        text: $('#root-folder-title').text(),
+        nodes: folders
+      }],
+      onNodeSelected: function (event, data) {
+        if (data.id) {
+          $(this).parent().parent().find('.btn-success').attr('data-target-id', data.id)
+          $(this).parent().parent().find('.btn-success').attr('data-target-text', data.text)
+        } else {
+          $(this).parent().parent().find('.btn-success').attr('data-target-id', rootFolderId)
+          $(this).parent().parent().find('.btn-success').attr('data-target-text', $('#root-folder-title').text())
+        }
+      }
+    })
+    if (action === 'selectfolder') {
+      $('#move-folder-tree').on('rendered', function (event, data) {
+        if (currFolderId === rootFolderId) {
+          $('#move-folder-tree ul li').first().click()
+        } else {
+          $('#move-folder-tree').find('li[id="' + currFolderId + '"]').click()
+        }
+        highlightSearch()
+      })
+    }
+  })
+  $(this).find('.modal-title').hide()
+  switch (action) {
+    case 'newfolder':
+      $(this).find('.modal-title.new-folder').show()
+      $(this).find('.new-folder-remind').show()
+      $('#folder-name').show()
+      break
+    case 'renamefolder':
+      $(this).find('.modal-title.rename-folder').show()
+      $(this).find('.treeview').hide()
+      $('#folder-name').val($('#folder-title').text())
+      $('#folder-name').show()
+      break
+    case 'selectfolder':
+      $(this).find('.modal-title.choose-folder').show()
+      $(this).find('.btn-primary').show()
+      $(this).find('.btn-primary').on('click', function () {
+        $('#folder-name').show()
+        $(this).parent().parent().find('.btn-success').attr('data-action', 'newfolder')
+      })
+      break
+    case 'deletefolder':
+      $(this).find('.modal-title.delete-folder').show()
+      $(this).find('.treeview').hide()
+      $(this).find('.confirm-btn').removeClass('btn-success')
+      $(this).find('.confirm-btn').addClass('btn-danger')
+      $(this).find('.delete-alert').show()
+      $(this).find('.delete-name').show()
+      $(this).find('.delete-name').html('<i class="fa fa-folder"></i> ' + $('#folder-title').text())
+      break
+    case 'movefolder':
+      $(this).find('.modal-title.move-folder').show()
+      break
+    case 'movenote':
+      $(this).find('.modal-title.move-note').show()
+      break
+    default:
+      break
+  }
+})
+
+$('.folder-modal').on('hidden.bs.modal', function (event) {
+  $(this).find('.confirm-btn').addClass('btn-success')
+  $(this).find('.confirm-btn').removeClass('btn-danger')
+  $(this).find('.alert').hide()
+  $(this).find('.btn-primary').hide()
+  $(this).find('.treeview').show()
+  $('#folder-name').val('')
+  $('#folder-name').hide()
+  $(this).find('.delete-alert').hide()
+  $(this).find('.delete-name').hide()
+  $(this).find('.new-folder-remind').hide()
+})
+
+$('.folder-modal').find('.btn-success').on('click', function () {
+  var action = $(this).attr('data-action')
+  var sourceId = $(this).attr('data-source-id')
+  var targetId = $(this).attr('data-target-id')
+  var targetText = $(this).attr('data-target-text')
+  var folderName = $('#folder-name').val()
+  if ((action === 'newfolder' || action === 'renamefolder') && folderName === '') {
+    $(this).parent().parent().find('.alert').html('請輸入資料夾名稱！').fadeIn()
+  } else if (action !== 'renamefolder' && action !== 'deletefolder' && typeof targetId === 'undefined') {
+    $(this).parent().parent().find('.alert').html('請選擇資料夾！').fadeIn()
+  } else {
+    switch (action) {
+      case 'selectfolder':
+        if (targetId !== rootFolderId) {
+          currFolderId = targetId
+          getNotes(targetId, getNotesCallback)
+          $('#folder-title').html('<span>' + targetText + '</span><i class="fa fa-pencil-square-o" aria-hidden="true" data-toggle="modal" data-target=".folder-modal" data-action="renamefolder" ></i>')
+          $('#folder-title').show()
+          $('#root-folder-title').hide()
+          $('#folder-tool').find('.btn-success').attr('data-source-id', targetId)
+          $('#folder-tool').find('.btn-danger').attr('data-source-id', targetId)
+          $('#folder-tool').find('.btn-success').show()
+          $('#folder-tool').find('.btn-danger').show()
+        } else {
+          currFolderId = rootFolderId
+          getNotes(rootFolderId, getNotesCallback)
+          $('#folder-title').hide()
+          $('#root-folder-title').show()
+          $('#folder-tool').find('.btn-success').hide()
+          $('#folder-tool').find('.btn-danger').hide()
+        }
+        break
+      case 'movefolder':
+        moveFolder(sourceId, targetId, function (data) {
+          if (data) {
+            getFolders(getFoldersCallback)
+          } else {
+            console.log(data)
+          }
+        })
+        break
+      case 'movenote':
+        moveNote(sourceId, targetId, function (data) {
+          if (!data) {
+            getNotes(currFolderId, getNotesCallback)
+          } else {
+            console.log(data)
+          }
+        })
+        break
+      case 'newfolder':
+        newFolder(targetId, folderName, function (data) {
+          if (data) {
+            getFolders(getFoldersCallback)
+          } else {
+            console.log(data)
+          }
+        })
+        break
+      case 'renamefolder':
+        renameFolder(currFolderId, folderName, function (data) {
+          if (!data) {
+            getFolders(getFoldersCallback)
+          } else {
+            console.log(data)
+          }
+        })
+        break
+      case 'deletefolder':
+        deleteFolder(sourceId, function (data) {
+          if (!data) {
+            currFolderId = rootFolderId
+            getFolders(getFoldersCallback)
+          } else {
+            console.log(data)
+          }
+        })
+        break
+      default:
+        break
+    }
+    $('.folder-modal').modal('hide')
+  }
+})
+
+var keyword = ''
+
+$('#folder-search').on('keyup', function (event) {
+  keyword = $('#folder-search').val()
+  highlightSearch()
+})
+
+function highlightSearch () {
+  $('li').each(function () {
+    $(this).css('background', '')
+  })
+  if (keyword !== '') {
+    searchKeyword(keyword, function (data) {
+      var notes = data.notes
+      var folders = data.folders
+      notes.forEach(function (note) {
+        $('li[data-note-id="' + note.id + '"]').css('background', 'lightgoldenrodyellow')
+        if (!$('li[id="' + note.folderId + '"]').hasClass('node-selected')) {
+          $('li[id="' + note.folderId + '"]').css('background', 'lightgoldenrodyellow')
+        }
+      })
+      folders.forEach(function (folder) {
+        if (!$('li[id="' + folder.id + '"]').hasClass('node-selected')) {
+          $('li[id="' + folder.id + '"]').css('background', 'lightgoldenrodyellow')
+        }
+      })
+    })
+  }
+}
